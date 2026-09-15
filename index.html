@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>PAVE Acoustic Capture</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --surface: #1a1a1f;
+    --border: #2c2c35;
+    --accent: #6c8dfa;
+    --amber: #f9a825;
+    --green: #4caf50;
+    --red: #ef5350;
+    --text: #e0e0e0;
+    --muted: #888;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    padding: 16px;
+  }
+  h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: .04em; color: var(--accent); }
+  .subtitle { font-size: .72rem; color: var(--muted); margin-top: 2px; margin-bottom: 16px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  label { font-size: .78rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type=number], input[type=text] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 9px 12px;
+    font-size: 1rem;
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  button {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:active { opacity: .7; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  #btnStart {
+    background: var(--accent);
+    color: #fff;
+    font-size: 1.05rem;
+    letter-spacing: .02em;
+  }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row button { font-size: .85rem; padding: 10px 6px; }
+  #btnSaveWav  { background: var(--green); color: #fff; }
+  #btnSaveMeta { background: #5c6bc0; color: #fff; }
+  #btnShare    { background: #8e24aa; color: #fff; }
+  canvas {
+    width: 100%;
+    height: 100px;
+    border-radius: 6px;
+    background: #111;
+    display: block;
+  }
+  #status {
+    font-size: .8rem;
+    line-height: 1.5;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .badge {
+    display: inline-block;
+    font-size: .7rem;
+    padding: 2px 7px;
+    border-radius: 99px;
+    font-weight: 600;
+    margin-left: 4px;
+  }
+  .badge-ok   { background: #1b5e20; color: #a5d6a7; }
+  .badge-warn { background: #4a3000; color: var(--amber); }
+  .badge-err  { background: #4a0000; color: #ef9a9a; }
+  .level-row  { display: flex; align-items: center; gap: 8px; font-size: .78rem; margin-top: 8px; }
+  .level-bar  { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .level-fill { height: 100%; background: var(--green); transition: width .1s; border-radius: 3px; }
+  #clipWarn   { color: var(--red); font-size: .75rem; display: none; }
+  .section-title { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>PAVE Acoustic Capture</h1>
+<p class="subtitle">P1 iPhone acoustic ranging — raw PCM · no DSP · HTTPS required</p>
+
+<div class="card">
+  <p class="section-title">Test parameters</p>
+  <div class="row">
+    <div>
+      <label for="inpDist">Ground truth distance (m)</label>
+      <input id="inpDist" type="number" value="1.000" min="0.1" max="5.0" step="0.001">
+    </div>
+    <div>
+      <label for="inpTemp">Temperature (°C)</label>
+      <input id="inpTemp" type="number" value="20.0" min="-10" max="50" step="0.5">
+    </div>
+  </div>
+  <div style="margin-top:10px">
+    <label for="inpDevice">Device label</label>
+    <input id="inpDevice" type="text" value="iPhone" placeholder="e.g. iPhone 15 Pro">
+  </div>
+  <div style="margin-top:10px">
+    <label for="inpOrient">Orientation</label>
+    <input id="inpOrient" type="text" value="landscape_bottom_toward_target">
+  </div>
+</div>
+
+<div class="card">
+  <p class="section-title">Waveform</p>
+  <canvas id="canvas" width="600" height="100"></canvas>
+  <div class="level-row">
+    <span>Level</span>
+    <div class="level-bar"><div class="level-fill" id="levelFill" style="width:0%"></div></div>
+    <span id="levelVal">—</span>
+    <span id="clipWarn">CLIP</span>
+  </div>
+</div>
+
+<div class="card">
+  <p class="section-title">Status</p>
+  <pre id="status">Ready. Tap START TEST to capture.</pre>
+</div>
+
+<div class="card">
+  <button id="btnStart">▶  START TEST</button>
+  <div class="btn-row" style="margin-top:10px">
+    <button id="btnSaveWav"  disabled>💾 WAV</button>
+    <button id="btnSaveMeta" disabled>📋 Meta</button>
+    <button id="btnShare"    disabled>⬆️ Share</button>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Constants — must match P0/P1 Python DSP exactly
+// ---------------------------------------------------------------------------
+const CHIRP_F_START   = 17000;    // Hz
+const CHIRP_F_END     = 21000;    // Hz
+const CHIRP_DURATION  = 0.020;    // s  (20 ms)
+const CHIRP_AMPLITUDE = 1.0;
+const CHIRP_TAPER     = 0.10;     // Hann taper fraction each end
+const RECORD_DURATION = 1.0;      // s  total recording window
+const CHIRP_DELAY     = 0.15;     // s  pre-chirp silence (recording starts first)
+const TARGET_SR       = 48000;    // preferred, iOS may grant 44100
+
+// ---------------------------------------------------------------------------
+// Global state
+// ---------------------------------------------------------------------------
+let wavBlob   = null;
+let metaObj   = null;
+let trialId   = 0;
+
+// ---------------------------------------------------------------------------
+// Chirp synthesis — linear sweep with Hann taper
+// ---------------------------------------------------------------------------
+function generateChirp(sampleRate) {
+  const n = Math.round(CHIRP_DURATION * sampleRate);
+  const samples = new Float32Array(n);
+  const k = (CHIRP_F_END - CHIRP_F_START) / (2 * CHIRP_DURATION); // Hz/s / 2
+  const taperLen = Math.round(CHIRP_TAPER * n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sampleRate;
+    const phase = 2 * Math.PI * (CHIRP_F_START * t + k * t * t);
+    let env = 1.0;
+    if (i < taperLen) {
+      env = 0.5 * (1 - Math.cos(Math.PI * i / taperLen));
+    } else if (i >= n - taperLen) {
+      env = 0.5 * (1 - Math.cos(Math.PI * (n - 1 - i) / taperLen));
+    }
+    samples[i] = CHIRP_AMPLITUDE * env * Math.sin(phase);
+  }
+  return samples;
+}
+
+// ---------------------------------------------------------------------------
+// AudioWorklet processor source (inlined as string → blob URL)
+// ---------------------------------------------------------------------------
+const WORKLET_CODE = `
+class PCMRecorder extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._buf = [];
+    this._rec = false;
+    this.port.onmessage = (e) => {
+      if (e.data === 'start') this._rec = true;
+      if (e.data === 'stop')  {
+        this._rec = false;
+        const total = this._buf.reduce((s,a) => s + a.length, 0);
+        const out   = new Float32Array(total);
+        let pos = 0;
+        for (const a of this._buf) { out.set(a, pos); pos += a.length; }
+        this.port.postMessage({ samples: out }, [out.buffer]);
+        this._buf = [];
+      }
+    };
+  }
+  process(inputs) {
+    if (this._rec && inputs[0] && inputs[0][0]) {
+      this._buf.push(inputs[0][0].slice());
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-recorder', PCMRecorder);
+`;
+
+// ---------------------------------------------------------------------------
+// ScriptProcessor fallback (older Safari / iOS < 14.5)
+// ---------------------------------------------------------------------------
+function captureWithScriptProcessor(ac, micSource, onSamples) {
+  const bufSize = 4096;
+  const sp = ac.createScriptProcessor(bufSize, 1, 1);
+  const chunks = [];
+  let active = true;
+  sp.onaudioprocess = (e) => {
+    if (!active) return;
+    chunks.push(e.inputBuffer.getChannelData(0).slice());
+  };
+  micSource.connect(sp);
+  // silent sink so iOS doesn't stop processing
+  const gain = ac.createGain();
+  gain.gain.value = 0;
+  sp.connect(gain);
+  gain.connect(ac.destination);
+  return {
+    stop: () => {
+      active = false;
+      sp.disconnect();
+      const total = chunks.reduce((s, a) => s + a.length, 0);
+      const out = new Float32Array(total);
+      let pos = 0;
+      for (const a of chunks) { out.set(a, pos); pos += a.length; }
+      onSamples(out);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WAV encoder — 16-bit PCM mono
+// ---------------------------------------------------------------------------
+function encodePCM16Wav(samples, sampleRate) {
+  const pcm = new Int16Array(samples.length);
+  let peak = 0, sumSq = 0, clipCount = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const v = Math.max(-1, Math.min(1, samples[i]));
+    const a = Math.abs(samples[i]);
+    if (a > peak) peak = a;
+    sumSq += v * v;
+    if (a > 0.95) clipCount++;
+    pcm[i] = Math.round(v * 32767);
+  }
+  const rms = Math.sqrt(sumSq / samples.length);
+  const dataBytes = pcm.buffer.byteLength;
+  const buf  = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buf);
+  const set  = (off, str) => { for (let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); };
+  set(0,  'RIFF');
+  view.setUint32(4,  36 + dataBytes, true);
+  set(8,  'WAVE');
+  set(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1,  true);   // PCM
+  view.setUint16(22, 1,  true);   // mono
+  view.setUint32(24, sampleRate,  true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2,  true);   // block align
+  view.setUint16(34, 16, true);   // bits
+  set(36, 'data');
+  view.setUint32(40, dataBytes, true);
+  new Uint8Array(buf, 44).set(new Uint8Array(pcm.buffer));
+  return { wavBuffer: buf, peak, rms, clipCount };
+}
+
+// ---------------------------------------------------------------------------
+// SHA-256 of ArrayBuffer → hex string
+// ---------------------------------------------------------------------------
+async function sha256hex(buf) {
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Waveform canvas renderer
+// ---------------------------------------------------------------------------
+function drawWaveform(canvas, samples, sampleRate) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, W, H);
+
+  // Amber highlight for chirp emission region
+  const chirpStart = Math.floor(CHIRP_DELAY * sampleRate);
+  const chirpEnd   = Math.floor((CHIRP_DELAY + CHIRP_DURATION) * sampleRate);
+  const x0 = (chirpStart / samples.length) * W;
+  const x1 = (chirpEnd   / samples.length) * W;
+  ctx.fillStyle = 'rgba(249,168,37,0.15)';
+  ctx.fillRect(x0, 0, x1 - x0, H);
+
+  ctx.strokeStyle = '#6c8dfa';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const step = Math.max(1, Math.floor(samples.length / W));
+  for (let px = 0; px < W; px++) {
+    let min = 1, max = -1;
+    for (let j = px * step; j < (px+1) * step && j < samples.length; j++) {
+      if (samples[j] < min) min = samples[j];
+      if (samples[j] > max) max = samples[j];
+    }
+    const y0 = ((1 - max) / 2) * H;
+    const y1 = ((1 - min) / 2) * H;
+    if (px === 0) ctx.moveTo(px, y0); else ctx.lineTo(px, y0);
+    ctx.lineTo(px, y1);
+  }
+  ctx.stroke();
+}
+
+// ---------------------------------------------------------------------------
+// Status helper
+// ---------------------------------------------------------------------------
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+// ---------------------------------------------------------------------------
+// Main capture flow
+// ---------------------------------------------------------------------------
+async function runCapture() {
+  const btn = document.getElementById('btnStart');
+  btn.disabled = true;
+  wavBlob = null; metaObj = null;
+  ['btnSaveWav','btnSaveMeta','btnShare'].forEach(id => {
+    document.getElementById(id).disabled = true;
+  });
+
+  const groundTruthM = parseFloat(document.getElementById('inpDist').value);
+  const temperatureC = parseFloat(document.getElementById('inpTemp').value);
+  const deviceLabel  = document.getElementById('inpDevice').value.trim() || 'unknown';
+  const orientation  = document.getElementById('inpOrient').value.trim();
+
+  setStatus('Requesting microphone permission…');
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation:  false,
+        noiseSuppression:  false,
+        autoGainControl:   false,
+        sampleRate: { ideal: TARGET_SR }
+      }
+    });
+  } catch (err) {
+    setStatus('Microphone denied or unavailable:\n' + err.message);
+    btn.disabled = false;
+    return;
+  }
+
+  // Report actual track constraints
+  const track    = stream.getAudioTracks()[0];
+  const settings = track.getSettings();
+  const trackSR  = settings.sampleRate || null;
+
+  setStatus(`Track settings:\n  sampleRate: ${trackSR ?? 'not reported'}\n  channelCount: ${settings.channelCount ?? '?'}\n  echoCancellation: ${settings.echoCancellation}\n  noiseSuppression: ${settings.noiseSuppression}\n  autoGainControl: ${settings.autoGainControl}\n\nInitializing AudioContext…`);
+
+  // Create AudioContext — use actual track SR if known, else prefer 48kHz
+  const contextSR = trackSR || TARGET_SR;
+  let ac;
+  try {
+    ac = new AudioContext({ sampleRate: contextSR });
+    await ac.resume();
+  } catch (err) {
+    ac = new AudioContext();
+    await ac.resume();
+  }
+  const actualSR = ac.sampleRate;
+
+  setStatus(prev => `${prev}\nAudioContext sampleRate: ${actualSR} Hz`);
+
+  // Mic source
+  const micSource = ac.createMediaStreamSource(stream);
+
+  // Silent gain node (prevents mic→speaker feedback on iOS)
+  const silentGain = ac.createGain();
+  silentGain.gain.value = 0;
+  silentGain.connect(ac.destination);
+
+  // Chirp buffer
+  const chirpSamples = generateChirp(actualSR);
+  const chirpBuf = ac.createBuffer(1, chirpSamples.length, actualSR);
+  chirpBuf.copyToChannel(chirpSamples, 0);
+
+  const totalSamples = Math.round(RECORD_DURATION * actualSR);
+  let capturedSamples = null;
+
+  setStatus(prev => `${prev}\nChirp: ${chirpSamples.length} samples @ ${actualSR} Hz\nAttempting AudioWorklet…`);
+
+  let useWorklet = false;
+  let workletNode = null;
+
+  // Try AudioWorklet
+  if (typeof AudioWorkletNode !== 'undefined') {
+    try {
+      const blob = new Blob([WORKLET_CODE], { type: 'application/javascript' });
+      const workletURL = URL.createObjectURL(blob);
+      await ac.audioWorklet.addModule(workletURL);
+      URL.revokeObjectURL(workletURL);
+      workletNode = new AudioWorkletNode(ac, 'pcm-recorder');
+      micSource.connect(workletNode);
+      workletNode.connect(silentGain);
+      useWorklet = true;
+      setStatus(prev => `${prev}\nRecorder: AudioWorklet ✓`);
+    } catch (e) {
+      setStatus(prev => `${prev}\nAudioWorklet failed (${e.message}), falling back…`);
+    }
+  }
+
+  let spCapture = null;
+  if (!useWorklet) {
+    setStatus(prev => `${prev}\nRecorder: ScriptProcessor (fallback)`);
+    spCapture = captureWithScriptProcessor(ac, micSource, (s) => { capturedSamples = s; });
+  }
+
+  // Start recording
+  setStatus(prev => `${prev}\n\nRecording started. Keep device still…`);
+
+  if (useWorklet) workletNode.port.postMessage('start');
+
+  // Schedule chirp emission AFTER recording has started
+  const chirpStartTime = ac.currentTime + CHIRP_DELAY;
+  const chirpSource = ac.createBufferSource();
+  chirpSource.buffer = chirpBuf;
+  chirpSource.connect(ac.destination);
+  chirpSource.start(chirpStartTime);
+
+  // Wait for recording window
+  await new Promise(r => setTimeout(r, Math.round(RECORD_DURATION * 1000) + 50));
+
+  // Stop recording
+  if (useWorklet) {
+    capturedSamples = await new Promise(resolve => {
+      workletNode.port.onmessage = (e) => resolve(e.data.samples);
+      workletNode.port.postMessage('stop');
+    });
+    workletNode.disconnect();
+  } else if (spCapture) {
+    spCapture.stop();
+    // wait a frame for buffer flush
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  // Stop mic
+  track.stop();
+  stream.getTracks().forEach(t => t.stop());
+
+  if (!capturedSamples || capturedSamples.length < 100) {
+    setStatus('Error: no samples captured. Check microphone permissions.');
+    btn.disabled = false;
+    return;
+  }
+
+  // Trim to expected length
+  const finalSamples = capturedSamples.length > totalSamples
+    ? capturedSamples.slice(0, totalSamples)
+    : capturedSamples;
+
+  setStatus(prev => `${prev}\nCaptured ${finalSamples.length} samples (${(finalSamples.length/actualSR*1000).toFixed(1)} ms)\nEncoding WAV…`);
+
+  // Encode WAV
+  const { wavBuffer, peak, rms, clipCount } = encodePCM16Wav(finalSamples, actualSR);
+  const audioHash = await sha256hex(wavBuffer);
+  wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+  // Update level display
+  const levelPct = Math.min(100, peak * 100);
+  document.getElementById('levelFill').style.width = levelPct + '%';
+  document.getElementById('levelFill').style.background =
+    peak > 0.95 ? 'var(--red)' : peak > 0.5 ? 'var(--amber)' : 'var(--green)';
+  document.getElementById('levelVal').textContent = `peak ${(20*Math.log10(peak+1e-10)).toFixed(1)} dBFS`;
+  if (clipCount > 0) {
+    const w = document.getElementById('clipWarn');
+    w.style.display = 'inline';
+    w.textContent = `CLIP ×${clipCount}`;
+  }
+
+  // Draw waveform
+  drawWaveform(document.getElementById('canvas'), finalSamples, actualSR);
+
+  // Build metadata JSON
+  trialId++;
+  metaObj = {
+    trial_id: trialId,
+    device_label: deviceLabel,
+    orientation: orientation,
+    ground_truth_m: groundTruthM,
+    temperature_c: temperatureC,
+    sample_rate_hz: actualSR,
+    track_reported_sample_rate_hz: trackSR,
+    n_samples: finalSamples.length,
+    duration_s: parseFloat((finalSamples.length / actualSR).toFixed(6)),
+    chirp_delay_s: CHIRP_DELAY,
+    chirp_duration_s: CHIRP_DURATION,
+    chirp_f_start_hz: CHIRP_F_START,
+    chirp_f_end_hz: CHIRP_F_END,
+    chirp_amplitude: CHIRP_AMPLITUDE,
+    chirp_taper_fraction: CHIRP_TAPER,
+    peak_amplitude: parseFloat(peak.toFixed(6)),
+    rms_amplitude: parseFloat(rms.toFixed(6)),
+    clip_samples: clipCount,
+    audio_sha256: audioHash,
+    echo_cancellation_requested: false,
+    noise_suppression_requested: false,
+    auto_gain_control_requested: false,
+    echo_cancellation_actual: settings.echoCancellation ?? null,
+    noise_suppression_actual: settings.noiseSuppression ?? null,
+    auto_gain_control_actual: settings.autoGainControl ?? null,
+    recorder_type: useWorklet ? 'AudioWorklet' : 'ScriptProcessor',
+    captured_at: new Date().toISOString(),
+    note: 'Do not use browser timestamps for ranging. Pass audio_sha256 to read_wav_mono() and run estimate_distance() in the Python P1 DSP pipeline to recover direct-path vs echo timing from the PCM audio.'
+  };
+
+  const warnSR   = actualSR !== 48000 && actualSR !== 44100;
+  const warnClip = clipCount > 0;
+  const warnSil  = rms < 0.001;
+
+  let summary = `\nDone ✓\n`;
+  summary += `  sample_rate:  ${actualSR} Hz`;
+  if (warnSR) summary += '  ← UNEXPECTED';
+  summary += `\n  samples:      ${finalSamples.length}`;
+  summary += `\n  peak:         ${(20*Math.log10(peak+1e-10)).toFixed(1)} dBFS`;
+  if (warnClip) summary += '  ← CLIPPING';
+  summary += `\n  rms:          ${(20*Math.log10(rms+1e-10)).toFixed(1)} dBFS`;
+  if (warnSil) summary += '  ← SILENCE?';
+  summary += `\n  sha256:       ${audioHash.slice(0,16)}…`;
+  summary += `\n  recorder:     ${metaObj.recorder_type}`;
+  summary += `\n  AEC actual:   ${settings.echoCancellation ?? 'not reported'}`;
+  summary += `\n  AGC actual:   ${settings.autoGainControl ?? 'not reported'}`;
+  summary += `\n  NS actual:    ${settings.noiseSuppression ?? 'not reported'}`;
+
+  setStatus(prev => `${prev}${summary}`);
+
+  document.getElementById('btnSaveWav').disabled  = false;
+  document.getElementById('btnSaveMeta').disabled = false;
+  if (navigator.share) document.getElementById('btnShare').disabled = false;
+
+  btn.disabled = false;
+  btn.textContent = '▶  CAPTURE AGAIN';
+}
+
+// ---------------------------------------------------------------------------
+// Save / Share
+// ---------------------------------------------------------------------------
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href = url; a.download = filename; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+}
+
+function filenameBase() {
+  const now = new Date();
+  const ts  = now.toISOString().replace(/[:.]/g,'-').slice(0,19);
+  const dist = (metaObj?.ground_truth_m ?? 0).toFixed(3).replace('.','p');
+  return `acoustic_${ts}_d${dist}`;
+}
+
+document.getElementById('btnSaveWav').addEventListener('click', () => {
+  if (!wavBlob) return;
+  downloadBlob(wavBlob, filenameBase() + '.wav');
+});
+
+document.getElementById('btnSaveMeta').addEventListener('click', () => {
+  if (!metaObj) return;
+  const json = JSON.stringify(metaObj, null, 2);
+  downloadBlob(new Blob([json], { type: 'application/json' }), filenameBase() + '.json');
+});
+
+document.getElementById('btnShare').addEventListener('click', async () => {
+  if (!wavBlob || !metaObj || !navigator.share) return;
+  const base = filenameBase();
+  const wavFile  = new File([wavBlob], base + '.wav',  { type: 'audio/wav' });
+  const metaFile = new File(
+    [JSON.stringify(metaObj, null, 2)],
+    base + '.json',
+    { type: 'application/json' }
+  );
+  try {
+    await navigator.share({ title: 'PAVE Acoustic', files: [wavFile, metaFile] });
+  } catch (e) {
+    setStatus(prev => `${prev}\nShare: ${e.message}`);
+  }
+});
+
+document.getElementById('btnStart').addEventListener('click', runCapture);
+
+// Draw empty canvas placeholder
+(function() {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#2c2c35';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, 50); ctx.lineTo(600, 50);
+  ctx.stroke();
+})();
+</script>
+</body>
+</html>
